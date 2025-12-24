@@ -408,3 +408,34 @@ mod test;
 
 pub use crate::contract::TokenClient;
 ```
+
+----
+
+## References and Related Documents
+
+This document demonstrates the complete and correct implementation of a SEP-41 token. To better understand each component:
+
+### Common Mistakes to Avoid
+
+* **[examples_token_antipattern](examples_token_antipattern.md)** - Anti-patterns and common errors when implementing tokens (CRITICAL READING)
+
+### SDK Fundamentals
+
+* **[sdk_storage](sdk_storage.md)** - Storage types: Instance, Persistent, Temporary, and TTL management
+* **[sdk_auth](sdk_auth.md)** - Authentication system: `require_auth()` and signature verification
+* **[sdk_env](sdk_env.md)** - `Env` object and its methods (storage, ledger, events)
+* **[sdk_types](sdk_types.md)** - Data types: Address, String, Map, Vec, i128
+* **[sdk_errors](sdk_errors.md)** - Defining custom errors with `#[contracterror]`
+
+### Token Guides
+
+* **[examples_token](examples_token.md)** - Step-by-step tutorial to create a token from scratch
+
+### General Concepts
+
+* **[overview](overview.md)** - Introduction to Soroban and fundamental concepts
+* **[examples_counter](examples_counter.md)** - Basic contract to understand general structure
+
+### Development Tools
+
+* **[cli_basic](cli_basic.md)** - CLI commands to compile, deploy, and test contracts
