@@ -1,16 +1,29 @@
 from app.rag.retrieve import retrieve_context_with_metadata
 from app.rag.prompts import build_code_generation_prompt, build_explanation_prompt
+from app.rag.validators import validate_soroban_code, format_validation_message, should_validate_code
 from openai import OpenAI
 from app.config import OPENROUTER_API_KEY
 from typing import List, Dict, Any
+import httpx
 
 client = OpenAI(
     api_key=OPENROUTER_API_KEY,
-    base_url="https://openrouter.ai/api/v1"
+    base_url="https://openrouter.ai/api/v1",
+    timeout=httpx.Timeout(
+        connect=10.0,      # 10s para conectar
+        read=180.0,        # 3 minutos para leer
+        write=30.0,        # 30s para escribir
+        pool=10.0          # 10s pool timeout
+    ),
+    max_retries=2 
 )
 
 # Modelo para generación de código
-CODE_MODEL = "deepseek/deepseek-r1-0528:free"
+# Opciones por velocidad:
+# - deepseek/deepseek-chat (RÁPIDO, 10-15s, calidad buena)
+# - deepseek/deepseek-r1-0528:free (LENTO, 60s+, calidad excelente)
+# - anthropic/claude-3.5-sonnet (MUY RÁPIDO, 5-10s, calidad excelente, PAGO)
+CODE_MODEL = "deepseek/deepseek-chat"  # Cambiado de R1 a Chat para velocidad
 
 def detect_language(query: str) -> str:
     """
@@ -40,7 +53,7 @@ def detect_language(query: str) -> str:
     
     # Palabras clave en español (muy expandido)
     spanish_keywords = [
-        "crear", "construir", "hacer", "cómo", "como", "qué", "que", "explicar", 
+        "crear", "crea", "construir", "hacer", "cómo", "como", "qué", "que", "explicar", 
         "mostrar", "escribir", "implementar", "generar", "ayuda", "puedo", 
         "por favor", "necesito", "quiero", "usando", "con", "debe", "debería",
         "tiene", "tenga", "tengo", "este", "esta", "el", "la", "un", "una",
@@ -99,7 +112,12 @@ def query_rag(
     
     # 1. Retrieval: obtener contexto relevante
     print(f"🔍 Buscando contexto relevante para: {user_query[:50]}...")
-    chunks = retrieve_context_with_metadata(user_query, k=k, language=language)
+    
+    # Reducir chunks para tokens (más rápido)
+    is_token_query = 'token' in user_query.lower()
+    effective_k = max(3, k - 2) if is_token_query else k  # Menos chunks para tokens
+    
+    chunks = retrieve_context_with_metadata(user_query, k=effective_k, language=language)
     
     if not chunks:
         return {
@@ -177,11 +195,70 @@ def query_rag(
     
     answer = response.choices[0].message.content
     
+    # Validar código si es necesario
+    validation_message = None
+    retry_count = 0
+    max_retries = 1  # Permitir 1 reintento si se detectan antipatrones críticos
+    
+    if mode == "code" and should_validate_code(user_query):
+        print("🔍 Validando código generado...")
+        validation_result = validate_soroban_code(answer)
+        
+        # Si hay errores críticos (antipatrones) y no hemos reintentado, regenerar
+        if not validation_result.is_valid and retry_count < max_retries:
+            print(f"⚠️  Antipatrones detectados. Intentando regenerar código...")
+            
+            # Construir prompt de corrección con los errores detectados
+            correction_prompt = f"""El código generado contiene los siguientes errores/antipatrones:
+
+{format_validation_message(validation_result)}
+
+Por favor, regenera el código corrigiendo estos problemas específicos.
+
+Query original del usuario:
+{user_query}
+
+Contexto de documentación:
+{context}
+
+CRÍTICO: Corrige TODOS los antipatrones mencionados arriba."""
+            
+            # Reintentar generación
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+                {"role": "assistant", "content": answer},
+                {"role": "user", "content": correction_prompt}
+            ]
+            
+            print("🔄 Regenerando código...")
+            retry_response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temp
+            )
+            
+            answer = retry_response.choices[0].message.content
+            retry_count += 1
+            
+            # Validar nuevamente
+            validation_result = validate_soroban_code(answer)
+            print("🔍 Validando código regenerado...")
+        
+        if not validation_result.is_valid or validation_result.warnings:
+            validation_message = format_validation_message(validation_result)
+            print(validation_message)
+            
+            # Si todavía hay errores después del retry, agregar advertencia al usuario
+            if not validation_result.is_valid:
+                answer += f"\n\n---\n\n⚠️ **ADVERTENCIA DE SEGURIDAD**\n\n{validation_message}"
+    
     return {
         "answer": answer,
         "sources": sources,
         "context_used": len(chunks),
         "model": model,
+        "validation": validation_message,
         "tokens": {
             "prompt": response.usage.prompt_tokens,
             "completion": response.usage.completion_tokens,
@@ -257,4 +334,34 @@ Instrucciones:
         "answer": answer,
         "sources": [{"file": c.get("metadata", {}).get("file")} for c in chunks],
         "context_used": len(chunks)
+    }
+
+
+def validate_code_only(code: str, contract_type: str = None) -> Dict[str, Any]:
+    """
+    Valida código sin regenerarlo.
+    
+    Args:
+        code: Código Rust a validar
+        contract_type: Tipo de contrato ("token", "nft", "custom")
+    
+    Returns:
+        Dict con resultado de validación y sugerencias
+    """
+    validation_result = validate_soroban_code(code, contract_type)
+    
+    return {
+        "is_valid": validation_result.is_valid,
+        "has_warnings": len(validation_result.warnings) > 0,
+        "errors": validation_result.errors,
+        "warnings": validation_result.warnings,
+        "message": format_validation_message(validation_result),
+        "summary": {
+            "total_errors": len(validation_result.errors),
+            "total_warnings": len(validation_result.warnings),
+            "antipatterns_detected": [
+                err for err in validation_result.errors 
+                if "ANTIPATRÓN" in err
+            ]
+        }
     }

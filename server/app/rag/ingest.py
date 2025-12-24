@@ -23,6 +23,8 @@ def infer_metadata(filename: str, content: str, language: str = "es") -> dict:
         base_metadata = {"section": "sdk", "topic": "errors", "level": "intermediate"}
     elif filename.startswith("examples_token_contract"):
         base_metadata = {"section": "examples", "topic": "token", "level": "advanced", "code_type": "full_implementation", "doc_type": "complete_contract"}
+    elif filename.startswith("examples_token_antipattern"):
+        base_metadata = {"section": "examples", "topic": "token", "level": "advanced", "code_type": "antipatterns", "doc_type": "security_guide"}
     elif filename.startswith("examples_token"):
         base_metadata = {"section": "examples", "topic": "token", "level": "intermediate", "code_type": "conceptual", "doc_type": "patterns_guide"}
     elif filename.startswith("examples_counter"):
@@ -69,6 +71,35 @@ def infer_metadata(filename: str, content: str, language: str = "es") -> dict:
             "has_constructor": "__constructor" in content,
             "has_admin": "administrator" in content.lower(),
             "has_allowances": "allowance" in content.lower(),
+        })
+    
+    # Detectar patrones específicos para examples_token_antipattern (guía de seguridad)
+    if filename.startswith("examples_token_antipattern"):
+        # Detectar antipatrones mencionados
+        antipatterns = re.findall(r'##\s+\d+\.\s+El Antipatrón\s+"([^"]+)"', content, re.MULTILINE)
+        
+        # Detectar temas de seguridad
+        security_topics = []
+        if "ttl" in content.lower() or "extend_ttl" in content.lower():
+            security_topics.append("ttl")
+        if "require_auth" in content.lower():
+            security_topics.append("auth")
+        if "panic" in content.lower():
+            security_topics.append("error_handling")
+        if "client" in content.lower() and "recursive" in content.lower():
+            security_topics.append("recursion")
+        if "initialize" in content.lower() and "front-running" in content.lower():
+            security_topics.append("initialization")
+        if "gas" in content.lower():
+            security_topics.append("gas_optimization")
+        
+        # Agregar metadata específica para antipatrones
+        base_metadata.update({
+            "antipatterns": antipatterns if antipatterns else [],
+            "security_topics": security_topics,
+            "contract_type": "token",
+            "is_negative_example": True,  # Indica que contiene ejemplos de qué NO hacer
+            "has_solutions": True,  # Indica que incluye soluciones correctas
         })
     
     # Detectar si es principalmente código o documentación
