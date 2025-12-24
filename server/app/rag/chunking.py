@@ -28,9 +28,16 @@ def chunk_documents(documents):
             # Código completo y no muy largo
             final_nodes.append(node)
         else:
-            # Dividir, pero marcar código truncado
-            sub_nodes = splitter.get_nodes_from_documents([Document(text=node.text)])
+            # Dividir, pero PRESERVAR metadata del nodo original
+            sub_nodes = splitter.get_nodes_from_documents([Document(
+                text=node.text,
+                metadata=node.metadata  # ✅ Preservar metadata
+            )])
             for sub_node in sub_nodes:
+                # Heredar metadata del nodo padre si el sub_node no lo tiene
+                if not sub_node.metadata and node.metadata:
+                    sub_node.metadata = node.metadata.copy()
+                
                 if '```' in sub_node.text and sub_node.text.count('```') % 2 != 0:
                     sub_node.text += "\n```\n\n*(código continúa)*"
                 final_nodes.append(sub_node)

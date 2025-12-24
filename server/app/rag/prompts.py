@@ -78,6 +78,10 @@ FUNDAMENTAL RULES:
 8. Use `require_auth()` for operations requiring authorization
 9. Manage storage TTL appropriately
 
+SOURCE PRIORITY:
+- If the context includes "Token Contract Example in Soroban (Smart Contract)" with complete implementation divided into numbered sections, THIS is the CANONICAL reference contract. Use it as the primary base.
+- If there are multiple sources about tokens, prioritize the complete implementation over conceptual guides.
+
 RESPONSE STRUCTURE:
 1. Brief explanation of the approach (2-3 lines)
 2. Complete and functional code
@@ -120,6 +124,10 @@ REGLAS FUNDAMENTALES:
 7. Maneja errores apropiadamente
 8. Usa `require_auth()` para operaciones que requieren autorización
 9. Gestiona el TTL del storage apropiadamente
+
+PRIORIDAD DE FUENTES:
+- Si el contexto incluye "Ejemplo de Contrato de Token en Soroban (Smart Contract)" con implementación completa dividida en secciones numeradas, ESTE es el contrato CANÓNICO de referencia. Úsalo como base principal.
+- Si hay múltiples fuentes sobre tokens, prioriza la implementación completa sobre guías conceptuales.
 
 ESTRUCTURA DE RESPUESTA:
 1. Breve explicación del enfoque (2-3 líneas)
