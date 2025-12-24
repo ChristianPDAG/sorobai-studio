@@ -4,40 +4,95 @@ import { useState } from 'react';
 import { Send, Sparkles, Loader2, Copy, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { mockChatMessages } from '@/lib/mock-data';
 import { formatDistanceToNow } from 'date-fns';
+import { sendChatMessage } from '@/app/actions/chat';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
 
-export function AIChat() {
-  const [messages, setMessages] = useState(mockChatMessages);
+type Message = {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+};
+
+interface AIChatProps {
+  onCodeUpdate?: (code: string) => void;
+}
+
+// Función para parsear código y explicación
+function parseResponse(content: string): { code: string; explanation: string } {
+  const codeBlockRegex = /```[\w]*\n([\s\S]*?)```/g;
+  const codeBlocks: string[] = [];
+  let match;
+
+  while ((match = codeBlockRegex.exec(content)) !== null) {
+    codeBlocks.push(match[1]);
+  }
+
+  // Texto sin bloques de código
+  const explanation = content.replace(/```[\w]*\n[\s\S]*?```/g, '').trim();
+
+  return {
+    code: codeBlocks.join('\n\n'),
+    explanation: explanation || content
+  };
+}
+
+export function AIChat({ onCodeUpdate }: AIChatProps) {
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [codeOnly, setCodeOnly] = useState(false); // Nuevo: modo code-only
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!input.trim() || isLoading) return;
-    
-    const newMessage = {
+
+    const newMessage: Message = {
       id: Date.now().toString(),
-      role: 'user' as const,
+      role: 'user',
       content: input,
       timestamp: new Date(),
     };
-    
+
     setMessages([...messages, newMessage]);
+    const userQuery = input;
     setInput('');
     setIsLoading(true);
-    
-    // Simulate AI response
-    setTimeout(() => {
+
+    try {
+      const response = await sendChatMessage({
+        query: userQuery,
+        code_only: codeOnly
+      });
+
+      // Parsear respuesta para separar código de explicación
+      const { code, explanation } = parseResponse(response.answer);
+
+      // Si hay código y se proporcionó callback, actualizar el editor
+      if (code && onCodeUpdate) {
+        onCodeUpdate(code);
+      }
+
+      // Mostrar solo la explicación en el chat (o todo si no hay código)
       setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
-        role: 'assistant' as const,
-        content: 'I\'ll help you with that. Let me generate the code...',
+        role: 'assistant',
+        content: explanation,
         timestamp: new Date(),
       }]);
+    } catch (error) {
+      setMessages(prev => [...prev, {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: `Error: ${error instanceof Error ? error.message : 'Failed to get response'}`,
+        timestamp: new Date(),
+      }]);
+    } finally {
       setIsLoading(false);
-    }, 1500);
+    }
   };
 
   const handleCopy = (content: string, id: string) => {
@@ -72,8 +127,8 @@ export function AIChat() {
       </div>
 
       {/* Messages */}
-      <ScrollArea className="flex-1 p-4">
-        <div className="space-y-4">
+      <div className="flex-1 overflow-y-auto">
+        <div className="space-y-4 p-4">
           {messages.length === 0 && (
             <div className="text-center py-8">
               <Sparkles className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
@@ -93,18 +148,17 @@ export function AIChat() {
               </div>
             </div>
           )}
-          
+
           {messages.map((message) => (
             <div
               key={message.id}
               className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               <div
-                className={`max-w-[85%] rounded-lg p-3 ${
-                  message.role === 'user'
-                    ? 'bg-black text-white'
-                    : 'bg-muted'
-                }`}
+                className={`max-w-[85%] rounded-lg p-3 ${message.role === 'user'
+                  ? 'bg-black text-white'
+                  : 'bg-muted'
+                  }`}
               >
                 <div className="flex items-start justify-between gap-2 mb-1">
                   <p className="text-xs font-medium opacity-70">
@@ -123,14 +177,25 @@ export function AIChat() {
                     </button>
                   )}
                 </div>
-                <p className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                {message.role === 'assistant' ? (
+                  <div className="text-sm prose prose-sm dark:prose-invert max-w-none prose-pre:bg-black prose-pre:text-white prose-code:text-yellow-600">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      rehypePlugins={[rehypeHighlight]}
+                    >
+                      {message.content}
+                    </ReactMarkdown>
+                  </div>
+                ) : (
+                  <p className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                )}
                 <p className="text-xs opacity-50 mt-2">
                   {formatDistanceToNow(message.timestamp, { addSuffix: true })}
                 </p>
               </div>
             </div>
           ))}
-          
+
           {isLoading && (
             <div className="flex justify-start">
               <div className="max-w-[85%] rounded-lg p-3 bg-muted">
@@ -142,10 +207,24 @@ export function AIChat() {
             </div>
           )}
         </div>
-      </ScrollArea>
+      </div>
 
       {/* Input */}
       <div className="border-t p-4 space-y-3">
+        {/* Toggle Code Only */}
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-muted-foreground">Code mode:</span>
+          <button
+            onClick={() => setCodeOnly(!codeOnly)}
+            className={`px-3 py-1 rounded-full transition-colors ${codeOnly
+                ? 'bg-yellow-400/20 text-yellow-600 border border-yellow-400/50'
+                : 'bg-muted text-muted-foreground hover:bg-muted/80'
+              }`}
+          >
+            {codeOnly ? '⚡ Code Only' : '💬 Code + Explanation'}
+          </button>
+        </div>
+
         <div className="flex gap-2">
           <Textarea
             value={input}
@@ -160,7 +239,7 @@ export function AIChat() {
             }}
             disabled={isLoading}
           />
-          <Button 
+          <Button
             onClick={handleSend}
             size="icon"
             className="bg-black text-white hover:bg-black/90 shrink-0 h-[80px] w-12"
@@ -170,7 +249,7 @@ export function AIChat() {
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          <kbd className="px-1.5 py-0.5 rounded bg-muted">Enter</kbd> to send, 
+          <kbd className="px-1.5 py-0.5 rounded bg-muted">Enter</kbd> to send,
           <kbd className="px-1.5 py-0.5 rounded bg-muted ml-1">Shift+Enter</kbd> for new line
         </p>
       </div>
