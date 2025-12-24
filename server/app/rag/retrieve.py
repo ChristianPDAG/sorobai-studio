@@ -83,8 +83,12 @@ def retrieve_context_with_metadata(
         ]
     
     # Estrategia de retrieval inteligente
-    code_keywords = ["example", "code", "implement", "how to", "function", "contract", "write"]
-    concept_keywords = ["what is", "explain", "difference", "when to use", "why"]
+    code_keywords = ["example", "code", "implement", "how to", "function", "contract", "write", "crear", "implementar", "ejemplo"]
+    concept_keywords = ["what is", "explain", "difference", "when to use", "why", "qué es", "explicar", "diferencia", "cuándo usar"]
+    
+    # Detectar si se busca un contrato completo de token
+    token_contract_keywords = ["token contract", "contrato de token", "token completo", "full token", "implementar token", "crear token"]
+    needs_token_contract = any(kw in query.lower() for kw in token_contract_keywords)
     
     needs_code = any(kw in query.lower() for kw in code_keywords)
     needs_concepts = any(kw in query.lower() for kw in concept_keywords)
@@ -93,6 +97,19 @@ def retrieve_context_with_metadata(
     for chunk in chunks:
         metadata = chunk.get("metadata", {})
         score = chunk.get("similarity", 0)
+        
+        # MÁXIMA PRIORIDAD: Contratos canónicos completos (examples_token_contract)
+        if metadata.get("doc_type") == "complete_contract":
+            # Si el usuario busca específicamente un token contract
+            if needs_token_contract or ("token" in query.lower() and needs_code):
+                score += 0.5  # Boost muy fuerte
+            elif needs_code and metadata.get("topic") == "token":
+                score += 0.3  # Boost moderado para tokens con código
+        
+        # Prioridad media: Guías de patrones (examples_token)
+        if metadata.get("doc_type") == "patterns_guide":
+            if needs_concepts or (not needs_token_contract and "token" in query.lower()):
+                score += 0.2
         
         # Boost para chunks con código si se necesita
         if needs_code and metadata.get("has_code"):
