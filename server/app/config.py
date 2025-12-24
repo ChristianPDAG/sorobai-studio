@@ -1,0 +1,9 @@
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+LLM_API_KEY = os.getenv("LLM_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
