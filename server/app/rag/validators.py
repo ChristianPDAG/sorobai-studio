@@ -49,6 +49,97 @@ def validate_token_contract(code: str) -> CodeValidationResult:
             "SOLUCIÓN: Accede directamente al storage o llama a funciones internas."
         )
     
+    # Detectar TokenInterface::método() llamado desde dentro de impl TokenInterface
+    # Esto causa RECURSIÓN INFINITA
+    impl_token_interface = re.search(r'impl\s+TokenInterface\s+for\s+(\w+)', code)
+    if impl_token_interface:
+        contract_name = impl_token_interface.group(1)
+        
+        # Extraer TODO el cuerpo del impl (puede tener múltiples funciones anidadas)
+        # Buscar desde "impl TokenInterface" hasta el último "}" del bloque
+        impl_start = code.find(f'impl TokenInterface for {contract_name}')
+        if impl_start != -1:
+            # Encontrar el cierre del bloque impl
+            brace_count = 0
+            impl_body_start = code.find('{', impl_start)
+            impl_body_end = impl_body_start
+            
+            for i in range(impl_body_start, len(code)):
+                if code[i] == '{':
+                    brace_count += 1
+                elif code[i] == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        impl_body_end = i
+                        break
+            
+            impl_body = code[impl_body_start:impl_body_end]
+            
+            # Detectar llamadas recursivas a TokenInterface::
+            has_recursion = bool(re.search(r'TokenInterface::(transfer|mint|burn|balance|approve|allowance|decimals|name|symbol)', impl_body))
+            
+            if has_recursion:
+                # Contar ocurrencias de TokenInterface:: method calls
+                method_calls = re.findall(r'TokenInterface::(transfer|mint|burn|balance|approve|allowance|decimals|name|symbol|initialize)', impl_body)
+                call_count = len(method_calls)
+                
+                # Contar funciones definidas
+                function_definitions = re.findall(r'fn\s+\w+\s*\(', impl_body)
+                func_count = len(function_definitions)
+                
+                if call_count >= func_count and func_count > 0:
+                    errors.append(
+                        "❌ [ANTIPATRÓN #1: Self-Client CRÍTICO] Detectada RECURSIÓN INFINITA MASIVA. "
+                        f"Estás implementando TokenInterface pero hay {call_count} llamadas a TokenInterface:: "
+                        f"en {func_count} funciones (eso es llamarte a ti mismo). "
+                        "Esto causará stack overflow inmediato. "
+                        "SOLUCIÓN: NO implementes TokenInterface así. "
+                        "Debes implementar la lógica REAL de storage y balances, NO delegar."
+                    )
+                else:
+                    errors.append(
+                        "❌ [ANTIPATRÓN #1: Self-Client CRÍTICO] Detectada RECURSIÓN INFINITA. "
+                        f"Estás implementando TokenInterface pero hay {call_count} llamadas recursivas a TokenInterface::. "
+                        "Esto causará stack overflow. "
+                        "SOLUCIÓN: Si implementas TokenInterface, debes escribir la lógica REAL, "
+                        "no delegar a TokenInterface (eso es llamarte a ti mismo)."
+                    )
+            
+            # Detectar implementación vacía/proxy (solo delega sin lógica real)
+            functions_in_impl = re.findall(r'fn\s+(\w+)\s*\([^)]*\)(?:\s*->\s*[^{]+)?\s*\{([^}]+)\}', impl_body)
+            
+            if functions_in_impl:
+                empty_count = 0
+                delegation_count = 0
+                
+                for func_name, func_body in functions_in_impl:
+                    # Si el cuerpo solo tiene una línea y es una llamada, es proxy vacío
+                    body_lines = [line.strip() for line in func_body.strip().split('\n') if line.strip() and not line.strip().startswith('//')]
+                    
+                    if len(body_lines) <= 1:
+                        empty_count += 1
+                        # Contar específicamente delegaciones a TokenInterface
+                        if 'TokenInterface::' in func_body:
+                            delegation_count += 1
+                
+                # Si TODAS las funciones son delegaciones a TokenInterface
+                if delegation_count > 0 and delegation_count == len(functions_in_impl):
+                    errors.append(
+                        "❌ [ANTIPATRÓN #1: Implementación Proxy Inútil] "
+                        "TODAS tus funciones solo llaman a TokenInterface::método(). "
+                        "Esto es RECURSIÓN INFINITA - cada método se llama a sí mismo indefinidamente. "
+                        "SOLUCIÓN: NO implementes TokenInterface manualmente. "
+                        "Usa #[contract(impl = TokenInterface)] o implementa la lógica REAL de storage."
+                    )
+                # Si más del 80% de funciones son proxies vacíos
+                elif empty_count > len(functions_in_impl) * 0.8:
+                    errors.append(
+                        "❌ [ANTIPATRÓN #1: Implementación Proxy Inútil] "
+                        "Tu implementación de TokenInterface solo delega sin agregar lógica. "
+                        "Esto NO funciona - debes implementar la lógica REAL de balances, storage, etc. "
+                        "SOLUCIÓN: Usa soroban_token_sdk correctamente o implementa toda la lógica desde cero."
+                    )
+    
     # Detectar cualquier uso sospechoso de Client dentro del propio contrato
     if re.search(r'let\s+client\s*=\s*token::Client::new', code) and 'current_contract_address' in code:
         warnings.append(
@@ -96,16 +187,29 @@ def validate_token_contract(code: str) -> CodeValidationResult:
         )
     
     # Detectar funciones con Address pero sin require_auth
-    transfer_functions = re.findall(r'fn\s+(transfer|mint|burn|spend|approve)\s*\([^)]*from:\s*Address[^}]+\}', code, re.DOTALL)
-    for func in transfer_functions:
-        if 'require_auth' not in func:
-            errors.append(
-                f"❌ [ANTIPATRÓN #3: Fake Auth] Función con parámetro Address 'from' sin require_auth(). "
-                "Cualquiera puede llamar esta función pasando la dirección de otra persona. "
-                "SOLUCIÓN: Agrega from.require_auth() al inicio de la función."
-            )
-            break
-    
+    auth_required_ops = ['transfer', 'transfer_from', 'approve', 'mint', 'burn', 'burn_from']
+
+    for op in auth_required_ops:
+        # Buscar implementaciones de estas funciones
+        pattern = rf'fn\s+{op}\s*\([^)]*\)(?:\s*->\s*[^{{]+)?\s*\{{([\s\S]*?)\n\s*\}}'
+        matches = re.findall(pattern, code)
+        
+        for body in matches:
+            # Si delega a TokenInterface::, es RECURSIÓN (ya detectado arriba)
+            if 'TokenInterface::' + op in body:
+                continue  # Ya lo marcamos como recursión infinita
+            
+            # Si no usa require_auth Y tiene lógica real (más de 1 línea)
+            body_lines = [line.strip() for line in body.strip().split('\n') if line.strip() and not line.strip().startswith('//')]
+            
+            if len(body_lines) > 0 and 'require_auth' not in body:
+                errors.append(
+                    f"❌ [ANTIPATRÓN #3: Fake Auth] "
+                    f"La función '{op}' modifica estado pero no usa require_auth(). "
+                    f"Cualquiera puede llamar esta función. SOLUCIÓN: Agrega address.require_auth() al inicio."
+                )
+                break
+
     # ANTIPATRÓN 4: Panic por Todo
     # Detectar panic! en lógica de negocio (muchos panics sin Result)
     panic_count = len(re.findall(r'\bpanic!\(', code))
@@ -135,20 +239,44 @@ def validate_token_contract(code: str) -> CodeValidationResult:
             break
     
     # ANTIPATRÓN 5: Initialización Abierta (Front-Running)
-    # Detectar función initialize sin protección
-    init_functions = re.findall(r'fn\s+(initialize|__constructor)\s*\([^}]+\}', code, re.DOTALL)
-    
-    for func in init_functions:
-        # Verificar que compruebe si ya fue inicializado
-        has_check = bool(re.search(r'has\(|get\(.*Admin|initialized', func))
+    # initialize() debe verificar que no fue llamado antes
+    init_functions = re.findall(
+        r'fn\s+(initialize|__constructor)\s*\([^)]*\)(?:\s*->\s*[^{]+)?\s*\{([\s\S]*?)\}',
+        code,
+        re.DOTALL
+    )
+
+    for name, body in init_functions:
+        # Si delega a TokenInterface::initialize, PUEDE estar OK (pero verificar)
+        if 'TokenInterface::initialize' in body:
+            # Si solo delega sin verificación previa, advertir
+            if 'has(' not in body and 'require_auth' not in body:
+                warnings.append(
+                    f"⚠️  [ANTIPATRÓN #5] La función {name}() delega a TokenInterface::initialize "
+                    "sin verificación previa. Asegúrate de que TokenInterface maneje la protección contra front-running."
+                )
+            continue
         
-        if not has_check:
+        # Para implementaciones custom
+        has_check = 'has(' in body or 'has(&' in body
+        calls_set = 'set(' in body or 'set(&' in body
+        uses_require_auth = 'require_auth' in body
+        
+        # Si escribe datos sin verificar que no existe
+        if calls_set and not has_check:
             errors.append(
-                "❌ [ANTIPATRÓN #5: Initialización Abierta] Función initialize() sin verificación. "
-                "Un atacante puede front-run y llamar a initialize antes que tú. "
-                "SOLUCIÓN: Verifica storage.has(&DataKey::Admin) antes de inicializar."
+                f"❌ [ANTIPATRÓN #5: Initialización Abierta] {name}() escribe datos sin verificar que no fue inicializado. "
+                "Un atacante puede front-run tu transacción. "
+                "SOLUCIÓN: Verifica storage.has(&key) antes de set()."
             )
-    
+        
+        # Si no requiere auth (aunque sea del deployer)
+        if calls_set and not uses_require_auth:
+            warnings.append(
+                f"⚠️  [ANTIPATRÓN #5] {name}() no usa require_auth(). "
+                "Considera requerir autorización del deployer o admin."
+            )
+
     # ANTIPATRÓN 6: Cálculo Pesado antes de Auth (Gas Griefing)
     # Detectar funciones donde require_auth está muy abajo
     functions_with_auth = re.findall(
