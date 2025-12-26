@@ -5,6 +5,7 @@ from openai import OpenAI
 from app.config import OPENROUTER_API_KEY
 from typing import List, Dict, Any
 import httpx
+import re
 
 client = OpenAI(
     api_key=OPENROUTER_API_KEY,
@@ -202,7 +203,20 @@ def query_rag(
     
     if mode == "code" and should_validate_code(user_query):
         print("🔍 Validando código generado...")
-        validation_result = validate_soroban_code(answer)
+        
+        # Extraer código de bloques markdown si existe
+        code_to_validate = answer
+        rust_code_blocks = re.findall(r'```rust\n(.*?)```', answer, re.DOTALL)
+        if rust_code_blocks:
+            # Si hay bloques de código rust, validar el primero (usualmente el principal)
+            code_to_validate = rust_code_blocks[0]
+        elif '```' in answer:
+            # Si hay bloques genéricos sin especificar lenguaje
+            generic_blocks = re.findall(r'```\n(.*?)```', answer, re.DOTALL)
+            if generic_blocks:
+                code_to_validate = generic_blocks[0]
+        
+        validation_result = validate_soroban_code(code_to_validate)
         
         # Si hay errores críticos (antipatrones) y no hemos reintentado, regenerar
         if not validation_result.is_valid and retry_count < max_retries:
@@ -249,9 +263,13 @@ CRÍTICO: Corrige TODOS los antipatrones mencionados arriba."""
             validation_message = format_validation_message(validation_result)
             print(validation_message)
             
-            # Si todavía hay errores después del retry, agregar advertencia al usuario
+            # Agregar mensaje de validación al answer (errores O advertencias)
             if not validation_result.is_valid:
+                # Errores críticos: añadir como advertencia de seguridad
                 answer += f"\n\n---\n\n⚠️ **ADVERTENCIA DE SEGURIDAD**\n\n{validation_message}"
+            elif validation_result.warnings:
+                # Solo advertencias: añadir como nota informativa
+                answer += f"\n\n---\n\n💡 **ADVERTENCIAS Y RECOMENDACIONES**\n\n{validation_message}"
     
     return {
         "answer": answer,
