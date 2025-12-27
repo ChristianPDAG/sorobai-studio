@@ -14,17 +14,64 @@ export interface User {
 
 export interface Project {
   id: string;
-  userId: string;
+  user_id: string;
   name: string;
   description: string;
   code: string;
-  language: 'rust' | 'typescript';
-  isPublic: boolean;
-  likes: number;
-  forks: number;
-  githubRepoUrl?: string;
-  createdAt: Date;
-  updatedAt: Date;
+  language: 'rust' | 'typescript' | 'javascript';
+  is_public: boolean;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface ProjectWithStats extends Project {
+  author_username?: string;
+  author_avatar?: string;
+  author_wallet?: string;
+  likes_count: number;
+  forks_count: number;
+  views_count: number;
+  comments_count: number;
+  avg_rating?: number;
+  ratings_count: number;
+  tags: string[];
+}
+
+export interface CreateProjectInput {
+  name: string;
+  description: string;
+  code?: string;
+  language: 'rust' | 'typescript' | 'javascript';
+  is_public?: boolean;
+}
+
+export interface UpdateProjectInput {
+  name?: string;
+  description?: string;
+  code?: string;
+  language?: 'rust' | 'typescript' | 'javascript';
+  is_public?: boolean;
+}
+
+export interface ProjectComment {
+  id: string;
+  project_id: string;
+  user_id: string;
+  content: string;
+  parent_comment_id?: string;
+  created_at: Date;
+  updated_at: Date;
+  author_username?: string;
+  author_avatar?: string;
+}
+
+export interface ProjectRating {
+  id: string;
+  project_id: string;
+  user_id: string;
+  rating: number;
+  created_at: Date;
+  updated_at: Date;
 }
 
 export interface Bounty {

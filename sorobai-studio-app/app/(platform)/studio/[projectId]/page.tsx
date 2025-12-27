@@ -1,13 +1,17 @@
 'use client';
 
-import { use, useState } from 'react';
+import { use, useState, useEffect } from 'react';
 import { CodeEditor } from '@/components/studio/code-editor';
 import { AIChat } from '@/components/studio/ai-chat';
 import { StudioToolbar } from '@/components/studio/studio-toolbar';
-import { ResourcePanel } from '@/components/studio/resource-panel';
-import { mockProjects } from '@/lib/mock-data';
-import { Button } from '@/components/ui/button';
-import { RefreshCw, Replace } from 'lucide-react';
+import { DeploymentModal } from '@/components/studio/deployment-modal';
+import { RefreshCw, Replace, Loader2 } from 'lucide-react';
+import { getProject } from '@/app/actions/projects';
+import { prepareDeployTransaction, submitDeployment } from '@/app/actions/deployments';
+import { Project } from '@/types';
+import { toast } from 'sonner';
+import { useRouter } from 'next/navigation';
+import { useStellarWallet } from '@/lib/hooks/use-stellar-wallet';
 
 export default function StudioProjectPage({
   params,
@@ -15,12 +19,33 @@ export default function StudioProjectPage({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = use(params);
-  const project = mockProjects.find((p) => p.id === projectId) || mockProjects[0];
-  const [showCostModal, setShowCostModal] = useState(false);
-  const [code, setCode] = useState(project.code);
-  const [replaceMode, setReplaceMode] = useState(true); // true = replace, false = append
+  const router = useRouter();
+  const wallet = useStellarWallet();
+  const [project, setProject] = useState<Project | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [showDeployModal, setShowDeployModal] = useState(false);
+  const [deploymentResult, setDeploymentResult] = useState<any>(null);
+  const [code, setCode] = useState('');
+  const [replaceMode, setReplaceMode] = useState(true);
 
-  // Función para actualizar código desde el chat
+  useEffect(() => {
+    loadProject();
+  }, [projectId]);
+
+  const loadProject = async () => {
+    setLoading(true);
+    const result = await getProject(projectId);
+
+    if (result.success && result.data) {
+      setProject(result.data);
+      setCode(result.data.code);
+    } else {
+      toast.error(result.error || 'Failed to load project');
+      router.push('/studio');
+    }
+    setLoading(false);
+  };
+
   const handleCodeUpdate = (newCode: string) => {
     if (replaceMode) {
       setCode(newCode);
@@ -29,11 +54,72 @@ export default function StudioProjectPage({
     }
   };
 
+  const handleDeploy = async () => {
+    try {
+      // Check wallet connection
+      if (!wallet.publicKey) {
+        await wallet.connect();
+      }
+
+      if (!wallet.publicKey) {
+        throw new Error('Wallet not connected');
+      }
+
+      // Step 1: Prepare deployment transaction
+      const prepareResult = await prepareDeployTransaction(projectId);
+
+      if (!prepareResult.success || !prepareResult.data) {
+        throw new Error(prepareResult.error || 'Failed to prepare deployment');
+      }
+
+      const { deploymentId, transactionXDR } = prepareResult.data;
+
+      // Step 2: Sign with Freighter
+      // In production, you would sign the actual XDR transaction
+      // const signedXDR = await wallet.signTransaction(transactionXDR);
+
+      // For now, we'll simulate signing
+      toast.info('Signing transaction with wallet...');
+      await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate signing delay
+      const signedXDR = `SIGNED_${transactionXDR}`;
+
+      // Step 3: Submit signed transaction
+      toast.info('Submitting to Stellar testnet...');
+      const submitResult = await submitDeployment(deploymentId, signedXDR);
+
+      if (!submitResult.success || !submitResult.data) {
+        throw new Error(submitResult.error || 'Failed to submit deployment');
+      }
+
+      // Success!
+      setDeploymentResult(submitResult.data);
+      toast.success('Contract deployed successfully!');
+
+    } catch (error) {
+      console.error('Deployment error:', error);
+      throw error;
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!project) {
+    return null;
+  }
+
   return (
     <div className="h-full flex flex-col min-h-0">
       <StudioToolbar
+        projectId={projectId}
         projectName={project.name}
-        onEstimateCost={() => setShowCostModal(true)}
+        code={code}
+        onSaveSuccess={() => setProject(prev => prev ? { ...prev, code } : null)}
       />
 
       <div className="flex-1 flex overflow-hidden min-h-0">
@@ -85,10 +171,11 @@ export default function StudioProjectPage({
         </div>
       </div>
 
-      {/* Cost Estimate Modal */}
-      <ResourcePanel
-        open={showCostModal}
-        onOpenChange={setShowCostModal}
+      <DeploymentModal
+        open={showDeployModal}
+        onOpenChange={setShowDeployModal}
+        onDeploy={handleDeploy}
+        deploymentResult={deploymentResult}
       />
     </div>
   );
