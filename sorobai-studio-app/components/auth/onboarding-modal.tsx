@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Wallet, Github, ArrowRight, Check } from 'lucide-react';
 import { useStellarWallet } from '@/lib/hooks/use-stellar-wallet';
 import { useRouter } from 'next/navigation';
+import { useWalletAuth } from '@/lib/hooks/use-wallet-auth';
 
 interface OnboardingModalProps {
   open: boolean;
@@ -15,16 +16,23 @@ interface OnboardingModalProps {
 
 export function OnboardingModal({ open, onOpenChange }: OnboardingModalProps) {
   const searchParams = useSearchParams();
+  const wallet = useStellarWallet();
+  const auth = useWalletAuth();
   const [step, setStep] = useState<1 | 2>(1);
-  const { connect, isConnected, publicKey } = useStellarWallet();
   const router = useRouter();
 
   const handleWalletConnect = async () => {
     try {
-      await connect();
+      // Conectar wallet
+      await wallet.connect();
+
+      // Autenticar (incluye registro si es primera vez)
+      await auth.authenticate();
+
+      // Pasar al Step 2 (GitHub)
       setStep(2);
     } catch (error) {
-      console.error('Failed to connect wallet:', error);
+      console.error('Failed to authenticate:', error);
     }
   };
 
@@ -81,16 +89,16 @@ export function OnboardingModal({ open, onOpenChange }: OnboardingModalProps) {
                 </div>
               </div>
 
-              <Button 
+              <Button
                 onClick={handleWalletConnect}
                 className="w-full bg-black text-white hover:bg-black/90"
                 size="lg"
-                disabled={isConnected}
+                disabled={auth.isAuthenticating}
               >
-                {isConnected ? (
+                {auth.isAuthenticating ? (
                   <>
                     <Check className="mr-2 h-5 w-5" />
-                    Wallet Connected
+                    Authenticating...
                   </>
                 ) : (
                   <>
@@ -102,9 +110,9 @@ export function OnboardingModal({ open, onOpenChange }: OnboardingModalProps) {
 
               <p className="text-xs text-center text-muted-foreground">
                 Don't have Freighter?{' '}
-                <a 
-                  href="https://www.freighter.app/" 
-                  target="_blank" 
+                <a
+                  href="https://www.freighter.app/"
+                  target="_blank"
                   rel="noopener noreferrer"
                   className="underline hover:text-foreground"
                 >
@@ -130,7 +138,7 @@ export function OnboardingModal({ open, onOpenChange }: OnboardingModalProps) {
                 <div className="flex-1 space-y-1">
                   <h3 className="font-semibold text-green-900">Wallet Connected</h3>
                   <p className="text-sm text-green-700 font-mono text-xs">
-                    {publicKey?.slice(0, 8)}...{publicKey?.slice(-8)}
+                    {wallet.publicKey?.slice(0, 8)}...{wallet.publicKey?.slice(-8)}
                   </p>
                 </div>
               </div>
@@ -154,7 +162,7 @@ export function OnboardingModal({ open, onOpenChange }: OnboardingModalProps) {
               </div>
 
               <div className="space-y-3">
-                <Button 
+                <Button
                   onClick={handleConnectGithub}
                   className="w-full bg-black text-white hover:bg-black/90"
                   size="lg"
@@ -163,7 +171,7 @@ export function OnboardingModal({ open, onOpenChange }: OnboardingModalProps) {
                   Connect GitHub
                 </Button>
 
-                <Button 
+                <Button
                   onClick={handleSkipGithub}
                   variant="ghost"
                   className="w-full"

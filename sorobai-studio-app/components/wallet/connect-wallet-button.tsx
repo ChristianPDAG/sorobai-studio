@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Wallet, Loader2, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useWalletAuth } from '@/lib/hooks/use-wallet-auth';
 import { useStellarWallet } from '@/lib/hooks/use-stellar-wallet';
 import { useRouter } from 'next/navigation';
 import {
@@ -16,44 +17,33 @@ import { WalletDropdown } from './wallet-dropdown';
 
 export function ConnectWalletButton() {
   const router = useRouter();
-  const { isConnected, publicKey, isLoading, connect, error } = useStellarWallet();
+  const wallet = useStellarWallet();
+  const auth = useWalletAuth();
   const [showDialog, setShowDialog] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
 
   const handleConnect = async () => {
     setIsConnecting(true);
     try {
-      console.log('🔄 Attempting to connect to Freighter...');
-      await connect();
-      console.log('✅ Connected successfully!');
+      // 1. Conectar wallet (Freighter popup)
+      await wallet.connect();
+
+      // 2. Autenticar (firma + registro/login)
+      await auth.authenticate();
+
+      // 3. Cerrar modal y redirect
       setShowDialog(false);
-      
-      // Redirect to dashboard after successful connection
       router.push('/dashboard');
     } catch (error: any) {
-      console.error('❌ Connection error:', error);
-      console.error('Error details:', {
-        message: error.message,
-        stack: error.stack,
-        name: error.name
-      });
-      // Error is handled in the hook
+      console.error('Connection failed:', error);
+      // Mostrar error al usuario
     } finally {
       setIsConnecting(false);
     }
   };
 
-  if (isLoading) {
-    return (
-      <Button variant="outline" disabled>
-        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-        Loading...
-      </Button>
-    );
-  }
-
-  // Show dropdown when connected
-  if (isConnected && publicKey) {
+  // Si ya está autenticado, mostrar dropdown
+  if (auth.isAuthenticated) {
     return <WalletDropdown />;
   }
 
@@ -97,24 +87,7 @@ export function ConnectWalletButton() {
               )}
             </button>
 
-            {error && (
-              <div className="bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-900/50 rounded-lg p-3">
-                <p className="text-sm text-red-800 dark:text-red-200">
-                  {error}
-                </p>
-                {error.includes('not installed') && (
-                  <a
-                    href="https://freighter.app"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-red-600 dark:text-red-400 hover:underline flex items-center gap-1 mt-2"
-                  >
-                    Install Freighter
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
-                )}
-              </div>
-            )}
+            {/* Error handling UI can be added here if needed */}
 
             <div className="text-center">
               <p className="text-xs text-muted-foreground">

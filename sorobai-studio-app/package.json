@@ -15,6 +15,7 @@
     "@radix-ui/react-scroll-area": "^1.2.10",
     "@radix-ui/react-slot": "^1.2.2",
     "@stellar/freighter-api": "^6.0.1",
+    "@stellar/stellar-sdk": "^14.4.3",
     "@supabase/ssr": "latest",
     "@supabase/supabase-js": "latest",
     "@tanstack/react-query": "^5.90.12",
