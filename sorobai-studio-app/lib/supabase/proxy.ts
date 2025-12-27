@@ -47,15 +47,30 @@ export async function updateSession(request: NextRequest) {
   const { data } = await supabase.auth.getClaims();
   const user = data?.claims;
 
-  if (
-    request.nextUrl.pathname !== "/" &&
-    !user &&
-    !request.nextUrl.pathname.startsWith("/login") &&
-    !request.nextUrl.pathname.startsWith("/auth")
-  ) {
-    // no user, potentially respond by redirecting the user to the login page
+  // Check for wallet authentication from cookies (for wallet-first auth)
+  const walletAddress = request.cookies.get('authenticated_wallet')?.value;
+  const walletConnected = request.cookies.get('stellar_wallet_connected')?.value;
+
+  // User is authenticated either via Supabase Auth OR Wallet Auth
+  const isAuthenticated = user || (walletAddress && walletConnected === 'true');
+
+  // Protected routes that require authentication
+  const protectedRoutes = ['/dashboard', '/studio', '/profile', '/settings', '/bounties'];
+  const isProtectedRoute = protectedRoutes.some(route =>
+    request.nextUrl.pathname.startsWith(route)
+  );
+
+  // Public routes that don't need authentication
+  const publicRoutes = ['/', '/hub', '/terms', '/privacy', '/auth'];
+  const isPublicRoute = publicRoutes.some(route =>
+    request.nextUrl.pathname.startsWith(route) || request.nextUrl.pathname === route
+  );
+
+  // Redirect to home if accessing protected route without auth
+  if (isProtectedRoute && !isAuthenticated) {
     const url = request.nextUrl.clone();
-    url.pathname = "/auth/login";
+    url.pathname = "/";
+    url.searchParams.set('redirectTo', request.nextUrl.pathname);
     return NextResponse.redirect(url);
   }
 
