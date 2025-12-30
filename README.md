@@ -54,7 +54,7 @@ Nuestro sistema **RAG (Retrieval-Augmented Generation)** consulta la documentaci
 Detectamos **antipatrones y vulnerabilidades** conocidas en smart contracts ANTES de que lleguen a la blockchain. Si hay errores, la IA regenera automáticamente.
 
 ### 3. De Idea a Blockchain en Minutos
-Sin configurar entornos. Sin compilar manualmente. Sin dolores de cabeza. **Describe → Genera → Despliega.**
+Sin configurar entornos. Sin compilar manualmente. Sin dolores de cabeza. **Describe → Genera → Prueba.**
 
 ### 4. Construido 100% para Soroban
 No es un IDE genérico adaptado. Cada feature está diseñada específicamente para el desarrollo de smart contracts en Stellar.
