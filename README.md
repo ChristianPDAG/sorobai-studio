@@ -102,7 +102,7 @@ No es un IDE genérico adaptado. Cada feature está diseñada específicamente p
 
 ### 💰 Marketplace de Bounties *(Próximamente)*
 
-- Publica trabajos con presupuesto en USDC
+- Publica trabajos con presupuesto!
 - Sistema de propuestas para desarrolladores
 - **Escrow en Stellar** para pagos seguros
 
@@ -140,7 +140,6 @@ No es un IDE genérico adaptado. Cada feature está diseñada específicamente p
 
 | Métrica | Valor |
 |---------|-------|
-| Tiempo de generación | ~10-15 segundos |
 | Validación de seguridad | Automática |
 | Idiomas soportados | Español e Inglés |
 | Red disponible | Testnet (Mainnet próximamente) |
